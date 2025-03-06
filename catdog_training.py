@@ -19,6 +19,10 @@ from oxford_iiit_pet import OxfordIIITPet
 import collections
 collections.Iterable = collections.abc.Iterable
 
+try:
+    import torch_nnpa
+except ImportError:
+    print("Error importing torch_nnpa")
 
 MODEL_FILENAME = 'model_cnn.pt'
 
@@ -194,6 +198,7 @@ def test_setup(batch_size=4, resize=128, num_workers=4, device='cpu'):
     try:
         device = torch.device(device)
     except RuntimeError:
+        print(f"Error using device {device} - proceeding with cpu instead")
         device = torch.device('cpu')
 
     oxford_pet_test = OxfordIIITPet(

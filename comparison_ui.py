@@ -79,18 +79,22 @@ class App(Thread):
 
     def _cpu_update(self, *args):
         if not self.left_queue.empty():
-            image = to_pil_image(self.left_queue.get_nowait())
-            photo_image = ImageTk.PhotoImage(image)
-            self.left_image['image'] = photo_image
-            self.left_image.image = photo_image  # need to do this to prevent garbage collection??
+            tensor = self.left_queue.get_nowait()
+            if self.left_count % 10 == 0:
+                image = to_pil_image(tensor)
+                photo_image = ImageTk.PhotoImage(image)
+                self.left_image['image'] = photo_image
+                self.left_image.image = photo_image  # need to do this to prevent garbage collection??
         self.left_label['text'] = f"CPU-Inferred Images: {self.left_count}  Correct: {self.left_correct}"
 
     def _nnpa_update(self, *args):
         if not self.right_queue.empty():
-            image = to_pil_image(self.right_queue.get_nowait())
-            photo_image = ImageTk.PhotoImage(image)
-            self.right_image['image'] = photo_image
-            self.right_image.image = photo_image  # need to do this to prevent garbage collection??
+            tensor = self.right_queue.get_nowait()
+            if self.right_count % 10 == 0:
+                image = to_pil_image(tensor)
+                photo_image = ImageTk.PhotoImage(image)
+                self.right_image['image'] = photo_image
+                self.right_image.image = photo_image  # need to do this to prevent garbage collection??
         self.right_label['text'] = f"NNPA-Inferred Images: {self.right_count}  Correct: {self.right_correct}"
 
     def cpu_event(self, image, is_correct: bool):
@@ -193,7 +197,7 @@ def main():
             image_data, is_correct = nnpa_output_queue.get_nowait()
             app.nnpa_event(image_data, is_correct)
             # print("Sent NNPA event")
-        time.sleep(0.1)
+        time.sleep(0.001)
     cpu_process.kill()
     nnpa_process.kill()
 
