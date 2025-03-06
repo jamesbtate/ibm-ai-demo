@@ -146,6 +146,16 @@ def test_infer_loop(model, device, test_loader):
         100. * correct / len(test_loader.dataset)))
 
 
+def infer_once(model, device, input_data, target):
+    with torch.inference_mode():
+        input_data, target = input_data.to(device), target.to(device)
+        output = model(input_data)
+        test_loss = F.nll_loss(output, target, reduction='sum').item()
+        pred = output.argmax(dim=1, keepdim=True)
+        correct = pred.eq(target.view_as(pred)).sum().item()
+    return correct, test_loss
+
+
 def get_args():
     parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
     parser.add_argument('--batch-size', type=int, default=64, metavar='N',
@@ -173,14 +183,31 @@ def get_args():
     return args
 
 
-def one_hot_tensor(y):
-    print(f"y: {y}")
-    return torch.zeros(2, dtype=torch.float).scatter_(0, torch.tensor(y), value=1)
+def test_setup(batch_size=4, resize=128, num_workers=4, device='cpu'):
+    print(f"Setting up testing on device {device}")
+    try:
+        device = torch.device(device)
+    except RuntimeError:
+        device = torch.device('cpu')
 
-
-def identity_tensor(y):
-    return torch.tensor([y])
-
+    oxford_pet_test = torchvision.datasets.OxfordIIITPet(
+        root='data/',
+        split="test",
+        target_types="binary-category",
+        download=True,
+        transform=torchvision.transforms.Compose([
+            Resize((resize, resize)),
+            ToTensor(),
+        ]),
+    )
+    test_loader = DataLoader(oxford_pet_test,
+                             batch_size=batch_size,
+                             shuffle=True,
+                             num_workers=num_workers)
+    model = Net().to(device)
+    model.load_state_dict(torch.load(MODEL_FILENAME, weights_only=True))
+    print(f"{device} setup complete")
+    return model, device, test_loader
 
 def main():
     args = get_args()
