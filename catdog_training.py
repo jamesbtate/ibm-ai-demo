@@ -14,6 +14,10 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from torch.optim.lr_scheduler import StepLR
 from torchvision.transforms import ToTensor, Resize, Lambda
+from oxford_iiit_pet import OxfordIIITPet
+
+import collections
+collections.Iterable = collections.abc.Iterable
 
 
 MODEL_FILENAME = 'model_cnn.pt'
@@ -175,6 +179,8 @@ def get_args():
                         help='random seed (default: 1)')
     parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                         help='batches to wait before logging training status')
+    parser.add_argument('--num-workers', type=int, default=4, metavar='N',
+                        help='Number of DataLoader workers')
     parser.add_argument('--save-model', action='store_true', default=True,
                         help='For Saving the current Model')
     parser.add_argument('--infer', action='store_true', default=False,
@@ -190,7 +196,7 @@ def test_setup(batch_size=4, resize=128, num_workers=4, device='cpu'):
     except RuntimeError:
         device = torch.device('cpu')
 
-    oxford_pet_test = torchvision.datasets.OxfordIIITPet(
+    oxford_pet_test = OxfordIIITPet(
         root='data/',
         split="test",
         target_types="binary-category",
@@ -219,7 +225,7 @@ def main():
     # train_images, train_labels = mnist_data.load_training()
     # test_images, test_labels = mnist_data.load_testing()
     print("Opening dataset...")
-    oxford_pet_train = torchvision.datasets.OxfordIIITPet(
+    oxford_pet_train = OxfordIIITPet(
         root='data/',
         split="trainval",
         target_types="binary-category",
@@ -231,7 +237,7 @@ def main():
     )
     # print(oxford_pet_train[-1])
 
-    oxford_pet_test = torchvision.datasets.OxfordIIITPet(
+    oxford_pet_test = OxfordIIITPet(
         root='data/',
         split="test",
         target_types="binary-category",
@@ -254,11 +260,11 @@ def main():
     train_loader = DataLoader(oxford_pet_train,
                               batch_size=4,
                               shuffle=True,
-                              num_workers=4)
+                              num_workers=args.num_workers)
     test_loader = DataLoader(oxford_pet_test,
                               batch_size=4,
                               shuffle=True,
-                              num_workers=4)
+                              num_workers=args.num_workers)
 
     print("Initializing neural net...")
     model = Net().to(device)
