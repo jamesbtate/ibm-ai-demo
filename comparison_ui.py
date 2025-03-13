@@ -8,6 +8,7 @@ from tkinter.ttk import Frame, Label, Button
 import tkinter
 from multiprocessing import Process, Queue
 import random
+import signal
 import time
 from PIL import ImageTk
 
@@ -22,6 +23,7 @@ class App(Thread):
         Thread.__init__(self)
         self.start_time = 0
         self.am_i_alive = False
+        self.die = False
         self.tk_root = None
         self.frame = None
         self.label = None
@@ -48,6 +50,7 @@ class App(Thread):
         self.tk_root.bind("<<cpu_incorrect>>", self._cpu_update)
         self.tk_root.bind("<<nnpa_correct>>", self._nnpa_update)
         self.tk_root.bind("<<nnpa_incorrect>>", self._nnpa_update)
+        self.tk_root.protocol('WM_DELETE_WINDOW', self.stop)
 
         self.frame = Frame(self.tk_root, padding=10)
         self.frame.grid()
@@ -75,10 +78,12 @@ class App(Thread):
         self._nnpa_update()
 
     def _tick(self):
-        """ Update my own UI elements (just the timer) """
+        """ Update my own UI elements and other periodic tasks """
         elapsed = int(time.time() - self.start_time)
-        self.label['text'] = f"Runtime: {elapsed}"
+        self.label['text'] = f"Runtime: {elapsed}s"
         self.tk_root.after(250, self._tick)
+        if self.die:
+            self.stop()
 
     def _cpu_update(self, *args):
         if not self.left_queue.empty():
@@ -129,8 +134,14 @@ class App(Thread):
         self.tk_root.mainloop()
 
     def stop(self):
+        """ Internal method to kill the app """
         self.am_i_alive = False
         self.tk_root.destroy()
+
+    def kill(self, *args):
+        """ Called externally to make the app stop """
+        print("telling app to die")
+        self.die = True
 
     def is_alive(self):
         """ Returns true while the UI is alive. False when it ends. """
@@ -160,49 +171,57 @@ def run_nnpa_process(queue: Queue):
 
 
 def main():
-    app = App()
-    app.start()
+    try:
+        app = App()
+        app.start()
 
-    cpu_output_queue = Queue()
-    nnpa_output_queue = Queue()
-    cpu_output_queue.put(None)
-    nnpa_output_queue.put(None)
+        signal.signal(signal.SIGINT, app.kill)
 
-    cpu_process = Process(target=run_cpu_process, args=(cpu_output_queue,))
-    cpu_process.start()
-    nnpa_process = Process(target=run_nnpa_process, args=(nnpa_output_queue,))
-    nnpa_process.start()
+        cpu_output_queue = Queue()
+        nnpa_output_queue = Queue()
+        cpu_output_queue.put(None)
+        nnpa_output_queue.put(None)
 
-    """
-    Inference processes are programmed to setup then pop one item from their output queue.
-    Then they wait for an item to be added to it before starting inference.
-    Here, we wait until both output queues are empty, then we pop both queues to start them.
-    """
-    while not (cpu_output_queue.empty() and nnpa_output_queue.empty()):
-        time.sleep(0.25)
-    print("Both models ready. Starting inference.")
-    cpu_output_queue.put(None)
-    nnpa_output_queue.put(None)
+        cpu_process = Process(target=run_cpu_process, args=(cpu_output_queue,))
+        cpu_process.start()
+        nnpa_process = Process(target=run_nnpa_process, args=(nnpa_output_queue,))
+        nnpa_process.start()
 
-    time.sleep(1)
-    print("Starting UI loop")
-    while True:
-        if not app.is_alive():
-            print("App dead. breaking...")
-            break
-        # app.cpu_event(None, random.choice((True, False)))
-        # print("Sent test event")
-        if not cpu_output_queue.empty():
-            image_data, is_correct = cpu_output_queue.get_nowait()
-            app.cpu_event(image_data, is_correct)
-            # print("Sent CPU event")
-        if not nnpa_output_queue.empty():
-            image_data, is_correct = nnpa_output_queue.get_nowait()
-            app.nnpa_event(image_data, is_correct)
-            # print("Sent NNPA event")
-        time.sleep(0.001)
-    cpu_process.kill()
-    nnpa_process.kill()
+        """
+        Inference processes are programmed to setup then pop one item from their output queue.
+        Then they wait for an item to be added to it before starting inference.
+        Here, we wait until both output queues are empty, then we pop both queues to start them.
+        """
+        while not (cpu_output_queue.empty() and nnpa_output_queue.empty()):
+            time.sleep(0.25)
+        print("Both models ready. Starting inference momentarily.")
+        time.sleep(3)
+        cpu_output_queue.put(None)
+        nnpa_output_queue.put(None)
+
+        time.sleep(1)
+        print("Starting UI loop")
+        while True:
+            if not app.is_alive():
+                print("App dead. breaking...")
+                break
+            # app.cpu_event(None, random.choice((True, False)))
+            # print("Sent test event")
+            if not cpu_output_queue.empty():
+                image_data, is_correct = cpu_output_queue.get_nowait()
+                app.cpu_event(image_data, is_correct)
+                # print("Sent CPU event")
+            if not nnpa_output_queue.empty():
+                image_data, is_correct = nnpa_output_queue.get_nowait()
+                app.nnpa_event(image_data, is_correct)
+                # print("Sent NNPA event")
+            time.sleep(0.001)
+    except KeyboardInterrupt:
+        "caught keyboard interrupt in main loop"
+        app.kill()
+    finally:
+        cpu_process.kill()
+        nnpa_process.kill()
 
 
 if __name__ == '__main__':
