@@ -13,6 +13,9 @@ from PIL import ImageTk
 
 import catdog_training
 
+IMAGE_SIZE=256
+MODEL_FILE='model_256.pt'
+
 
 class App(Thread):
     def __init__(self):
@@ -80,7 +83,7 @@ class App(Thread):
     def _cpu_update(self, *args):
         if not self.left_queue.empty():
             tensor = self.left_queue.get_nowait()
-            if self.left_count % 10 == 0:
+            if self.left_count % 10 == 1:
                 image = to_pil_image(tensor)
                 photo_image = ImageTk.PhotoImage(image)
                 self.left_image['image'] = photo_image
@@ -90,7 +93,7 @@ class App(Thread):
     def _nnpa_update(self, *args):
         if not self.right_queue.empty():
             tensor = self.right_queue.get_nowait()
-            if self.right_count % 10 == 0:
+            if self.right_count % 10 == 1:
                 image = to_pil_image(tensor)
                 photo_image = ImageTk.PhotoImage(image)
                 self.right_image['image'] = photo_image
@@ -137,7 +140,7 @@ class App(Thread):
 def run_cpu_process(queue: Queue):
     output_queue = queue
     model, device, test_loader = catdog_training.test_setup(
-        batch_size=1, resize=128, num_workers=1, device='cpu')
+        batch_size=1, resize=IMAGE_SIZE, num_workers=1, device='cpu', model_path=MODEL_FILE)
     output_queue.get()  # signal to main process that we are ready
     output_queue.get()  # block here until signaled to start
     for input_data, target in test_loader:
@@ -148,7 +151,7 @@ def run_cpu_process(queue: Queue):
 def run_nnpa_process(queue: Queue):
     output_queue = queue
     model, device, test_loader = catdog_training.test_setup(
-        batch_size=1, resize=128, num_workers=1, device='nnpa')
+        batch_size=1, resize=IMAGE_SIZE, num_workers=1, device='nnpa', model_path=MODEL_FILE)
     output_queue.get()  # signal to main process that we are ready
     output_queue.get()  # block here until signaled to start
     for input_data, target in test_loader:
