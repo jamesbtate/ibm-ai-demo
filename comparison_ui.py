@@ -5,11 +5,13 @@ import multiprocessing
 from threading import Thread
 from torchvision.transforms.functional import to_pil_image
 from tkinter.ttk import Frame, Label, Button
+import argparse
 import tkinter
 from multiprocessing import Process, Queue
 import random
 import signal
 import time
+import os
 from PIL import ImageTk
 
 import catdog_training
@@ -88,7 +90,7 @@ class App(Thread):
     def _cpu_update(self, *args):
         if not self.left_queue.empty():
             tensor = self.left_queue.get_nowait()
-            if self.left_count % 10 == 1:
+            if self.left_count % 10 == 2:
                 image = to_pil_image(tensor)
                 photo_image = ImageTk.PhotoImage(image)
                 self.left_image['image'] = photo_image
@@ -98,7 +100,7 @@ class App(Thread):
     def _nnpa_update(self, *args):
         if not self.right_queue.empty():
             tensor = self.right_queue.get_nowait()
-            if self.right_count % 10 == 1:
+            if self.right_count % 10 == 2:
                 image = to_pil_image(tensor)
                 photo_image = ImageTk.PhotoImage(image)
                 self.right_image['image'] = photo_image
@@ -135,6 +137,7 @@ class App(Thread):
 
     def stop(self):
         """ Internal method to kill the app """
+        print("App told to stop.")
         self.am_i_alive = False
         self.tk_root.destroy()
 
@@ -149,9 +152,10 @@ class App(Thread):
 
 
 def run_cpu_process(queue: Queue):
+    print(f"CPU PID: {os.getpid()}")
     output_queue = queue
     model, device, test_loader = catdog_training.test_setup(
-        batch_size=1, resize=IMAGE_SIZE, num_workers=1, device='cpu', model_path=MODEL_FILE)
+        batch_size=1, resize=IMAGE_SIZE, num_workers=0, device='cpu', model_path=MODEL_FILE)
     output_queue.get()  # signal to main process that we are ready
     output_queue.get()  # block here until signaled to start
     for input_data, target in test_loader:
@@ -160,9 +164,10 @@ def run_cpu_process(queue: Queue):
 
 
 def run_nnpa_process(queue: Queue):
+    print(f"NNPA PID: {os.getpid()}")
     output_queue = queue
     model, device, test_loader = catdog_training.test_setup(
-        batch_size=1, resize=IMAGE_SIZE, num_workers=1, device='nnpa', model_path=MODEL_FILE)
+        batch_size=1, resize=IMAGE_SIZE, num_workers=0, device='nnpa', model_path=MODEL_FILE)
     output_queue.get()  # signal to main process that we are ready
     output_queue.get()  # block here until signaled to start
     for input_data, target in test_loader:
@@ -170,7 +175,18 @@ def run_nnpa_process(queue: Queue):
         output_queue.put((input_data[0], correct))
 
 
+def get_args():
+    parser = argparse.ArgumentParser(description='Compare CPU and NNPA inference speed with tkinter UI')
+    parser.add_argument('--cpu-only', action='store_true', default=False,
+                        help='Only run the CPU side of the test.')
+    parser.add_argument('--nnpa-only', action='store_true', default=False,
+                        help='Only run the NNPA side of the test.')
+    args = parser.parse_args()
+    return args
+
+
 def main():
+    args = get_args()
     try:
         app = App()
         app.start()
@@ -179,13 +195,17 @@ def main():
 
         cpu_output_queue = Queue()
         nnpa_output_queue = Queue()
-        cpu_output_queue.put(None)
-        nnpa_output_queue.put(None)
+        cpu_process = None
+        nnpa_process = None
 
-        cpu_process = Process(target=run_cpu_process, args=(cpu_output_queue,))
-        cpu_process.start()
-        nnpa_process = Process(target=run_nnpa_process, args=(nnpa_output_queue,))
-        nnpa_process.start()
+        if not args.nnpa_only:
+            cpu_output_queue.put(None)
+            cpu_process = Process(target=run_cpu_process, args=(cpu_output_queue,))
+            cpu_process.start()
+        if not args.cpu_only:
+            nnpa_output_queue.put(None)
+            nnpa_process = Process(target=run_nnpa_process, args=(nnpa_output_queue,))
+            nnpa_process.start()
 
         """
         Inference processes are programmed to setup then pop one item from their output queue.
@@ -208,20 +228,30 @@ def main():
             # app.cpu_event(None, random.choice((True, False)))
             # print("Sent test event")
             if not cpu_output_queue.empty():
-                image_data, is_correct = cpu_output_queue.get_nowait()
-                app.cpu_event(image_data, is_correct)
-                # print("Sent CPU event")
+                message = cpu_output_queue.get_nowait()
+                if message is None:
+                    print("Warning: None message in CPU output queue")
+                else:
+                    image_data, is_correct = message
+                    app.cpu_event(image_data, is_correct)
+                    # print("Sent CPU event")
             if not nnpa_output_queue.empty():
-                image_data, is_correct = nnpa_output_queue.get_nowait()
-                app.nnpa_event(image_data, is_correct)
-                # print("Sent NNPA event")
+                message = nnpa_output_queue.get_nowait()
+                if message is None:
+                    print("Warning: None message in NNPA output queue")
+                else:
+                    image_data, is_correct = message
+                    app.nnpa_event(image_data, is_correct)
+                    # print("Sent NNPA event")
             time.sleep(0.001)
     except KeyboardInterrupt:
         "caught keyboard interrupt in main loop"
         app.kill()
     finally:
-        cpu_process.kill()
-        nnpa_process.kill()
+        if cpu_process:
+            cpu_process.kill()
+        if nnpa_process:
+            nnpa_process.kill()
 
 
 if __name__ == '__main__':
