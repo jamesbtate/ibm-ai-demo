@@ -10,6 +10,7 @@ import tkinter
 from multiprocessing import Process, Queue
 import random
 import signal
+import torch
 import time
 import os
 from PIL import ImageTk
@@ -181,12 +182,16 @@ def get_args():
                         help='Only run the CPU side of the test.')
     parser.add_argument('--nnpa-only', action='store_true', default=False,
                         help='Only run the NNPA side of the test.')
+    parser.add_argument('--thread-limit', type=int, default=0,
+                        help='Limit pytorch to this many threads. Default=0 means unlimited.')
     args = parser.parse_args()
     return args
 
 
 def main():
     args = get_args()
+    if args.thread_limit != 0:
+        torch.set_num_threads(args.thread_limit)
     try:
         app = App()
         app.start()
