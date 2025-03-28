@@ -12,6 +12,7 @@ import random
 import signal
 import torch
 import time
+import sys
 import os
 from PIL import ImageTk
 
@@ -22,22 +23,23 @@ MODEL_FILE='model_256.pt'
 
 
 class App(Thread):
-    def __init__(self):
+    def __init__(self, gui=True):
         Thread.__init__(self)
+        self.gui = gui
         self.start_time = 0
         self.am_i_alive = False
         self.die = False
         self.tk_root = None
         self.frame = None
-        self.label = None
+        self.label = {}
         self.button = None
 
         self.left_frame = None
-        self.left_label = None
-        self.left_image = None
-        self.right_label = None
-        self.right_frame = None
-        self.right_image = None
+        self.left_label = {}
+        self.left_image = {}
+        self.right_label = {}
+        self.right_frame = {}
+        self.right_image = {}
 
         self.left_count = 0
         self.left_correct = 0
@@ -84,14 +86,15 @@ class App(Thread):
         """ Update my own UI elements and other periodic tasks """
         elapsed = int(time.time() - self.start_time)
         self.label['text'] = f"Runtime: {elapsed}s"
-        self.tk_root.after(250, self._tick)
+        if self.gui:
+            self.tk_root.after(250, self._tick)
         if self.die:
             self.stop()
 
     def _cpu_update(self, *args):
         if not self.left_queue.empty():
             tensor = self.left_queue.get_nowait()
-            if self.left_count % 10 == 2:
+            if self.left_count % 10 == 1:
                 image = to_pil_image(tensor)
                 photo_image = ImageTk.PhotoImage(image)
                 self.left_image['image'] = photo_image
@@ -101,7 +104,7 @@ class App(Thread):
     def _nnpa_update(self, *args):
         if not self.right_queue.empty():
             tensor = self.right_queue.get_nowait()
-            if self.right_count % 10 == 2:
+            if self.right_count % 10 == 1:
                 image = to_pil_image(tensor)
                 photo_image = ImageTk.PhotoImage(image)
                 self.right_image['image'] = photo_image
@@ -110,37 +113,56 @@ class App(Thread):
 
     def cpu_event(self, image, is_correct: bool):
         """ receive an update from CPU inference process """
+        # print("make cpu event")
         self.left_queue.put(image)
         self.left_count += 1
         if is_correct:
             self.left_correct += 1
-            self.tk_root.event_generate("<<cpu_correct>>")
+            if self.gui:
+                self.tk_root.event_generate("<<cpu_correct>>")
         else:
-            self.tk_root.event_generate("<<cpu_incorrect>>")
+            if self.gui:
+                self.tk_root.event_generate("<<cpu_incorrect>>")
 
     def nnpa_event(self, image, is_correct: bool):
         """ receive an update from NNPA inference process """
+        # print("make nnpa event")
         self.right_queue.put(image)
         self.right_count += 1
         if is_correct:
             self.right_correct += 1
-            self.tk_root.event_generate("<<nnpa_correct>>")
+            if self.gui:
+                self.tk_root.event_generate("<<nnpa_correct>>")
         else:
-            self.tk_root.event_generate("<<nnpa_incorrect>>")
+            if self.gui:
+                self.tk_root.event_generate("<<nnpa_incorrect>>")
 
     def run(self) -> None:
-        self.ui_setup()
+        if self.gui:
+            self.ui_setup()
         self.am_i_alive = True
-        print("Running tkinter mainloop...")
         self.start_time = time.time()
         self._tick()
-        self.tk_root.mainloop()
+        if self.gui:
+            print("Running tkinter mainloop...")
+            self.tk_root.mainloop()
+        else:
+            print("Non-GUI main loop:")
+            while self.am_i_alive:
+                if self.die:
+                    self.stop()
+                elapsed = int(time.time() - self.start_time)
+                sys.stdout.write(f"\rRuntime: {elapsed}s  CPU #: {self.left_count}  NNPA #: {self.right_count}")
+                time.sleep(1)
+            print()
+
 
     def stop(self):
         """ Internal method to kill the app """
         print("App told to stop.")
         self.am_i_alive = False
-        self.tk_root.destroy()
+        if self.gui:
+            self.tk_root.destroy()
 
     def kill(self, *args):
         """ Called externally to make the app stop """
@@ -184,6 +206,8 @@ def get_args():
                         help='Only run the NNPA side of the test.')
     parser.add_argument('--thread-limit', type=int, default=0,
                         help='Limit pytorch to this many threads. Default=0 means unlimited.')
+    parser.add_argument('-n', '--no-gui', action='store_true', default=False,
+                        help='Do not launch the GUI.')
     args = parser.parse_args()
     return args
 
@@ -193,7 +217,7 @@ def main():
     if args.thread_limit != 0:
         torch.set_num_threads(args.thread_limit)
     try:
-        app = App()
+        app = App(gui=False)
         app.start()
 
         signal.signal(signal.SIGINT, app.kill)
