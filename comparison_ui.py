@@ -217,7 +217,7 @@ def main():
     if args.thread_limit != 0:
         torch.set_num_threads(args.thread_limit)
     try:
-        app = App(gui=False)
+        app = App(gui=not args.no_gui)
         app.start()
 
         signal.signal(signal.SIGINT, app.kill)
