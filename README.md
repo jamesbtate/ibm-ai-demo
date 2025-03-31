@@ -15,10 +15,26 @@ python fashion_mnist_training.py
 
 # test inference performance
 # this will automatically use IBM z16 NNPA if available
-python fashion_mnist.py
-# to force it not to use the NNPA, use this environment variable:
+python fashion_mnist_args.py
+
+# various arguments are available for measuring the performance in different conditions:
+python fashion_mnist_args.py -h
+usage: fashion_mnist_args.py [-h] [-b BATCH_SIZE] [-t THREADS] [-r RUNS]
+optional arguments:
+  -h, --help            show this help message and exit
+  -b BATCH_SIZE, --batch-size BATCH_SIZE
+                        Number of images in the batch. Default is 64
+  -t THREADS, --threads THREADS
+                        Tensorflow op parallelism limit. Default is 0 (no limit)
+  -r RUNS, --runs RUNS  Number of times to do the inference. Default is 1
+
+# to force it not to use the NNPA on IBM z16 platform, use this environment variable:
 export NNPA_DEVICES=0
-# not sure what to do to make this code use CUDA
+
+# If you have CUDA setup, this should automatically use it if you also have the right TF package installed
+pip install tensorflow[and-cuda]
+# You can then add the below environment variable to disable CUDA/GPU
+export CUDA_VISIBLE_DEVICES=""
 ```
 
 To test the cat/dog image classification (using PyTorch):
