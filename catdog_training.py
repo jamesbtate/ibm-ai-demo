@@ -3,6 +3,7 @@ Build and save a model for the cat and dog image classification
 """
 
 import argparse
+import math
 import time
 
 # from mnist import MNIST
@@ -14,7 +15,15 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from torch.optim.lr_scheduler import StepLR
 from torchvision.transforms import ToTensor, Resize, Lambda
+from oxford_iiit_pet import OxfordIIITPet
 
+import collections
+collections.Iterable = collections.abc.Iterable
+
+try:
+    import torch_nnpa
+except ImportError:
+    print("Error importing torch_nnpa")
 
 MODEL_FILENAME = 'model_cnn.pt'
 
@@ -41,7 +50,7 @@ class ImageDataset(Dataset):
 
 
 class Net(nn.Module):
-    def __init__(self):
+    def __init__(self, resize=128):
         super(Net, self).__init__()
         self.conv1 = nn.Conv2d(3, 32, 5, 1)
         self.conv2 = nn.Conv2d(32, 32, 5, 1)
@@ -53,7 +62,11 @@ class Net(nn.Module):
         self.conv8 = nn.Conv2d(256, 256, 3, 1)
         self.dropout1 = nn.Dropout(0.5)
         self.dropout2 = nn.Dropout(0.5)
-        self.fc1 = nn.Linear(2304, 128)
+        if resize==128:
+            linear_nodes = 2304  # 256 * 3 * 3
+        if resize==256:
+            linear_nodes = 30976  # 256 * 11 * 11
+        self.fc1 = nn.Linear(linear_nodes, 128)
         self.fc2 = nn.Linear(128, 2)
 
     def forward(self, x):
@@ -81,6 +94,8 @@ class Net(nn.Module):
         x = self.conv8(x)
         x = F.relu(x)
         x = F.max_pool2d(x, 2)  # output: 8x8
+
+        # print(f"size: {x.size()}  prod: {math.prod(x.size()[1:])}")
 
         x = torch.flatten(x, 1)
         x = self.dropout1(x)
@@ -175,22 +190,29 @@ def get_args():
                         help='random seed (default: 1)')
     parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                         help='batches to wait before logging training status')
+    parser.add_argument('--num-workers', type=int, default=1, metavar='N',
+                        help='Number of DataLoader workers (default 1)')
+    parser.add_argument('--resize', type=int, default=128, metavar='NxN',
+                        help='Resize the images to this size (default 128)')
     parser.add_argument('--save-model', action='store_true', default=True,
-                        help='For Saving the current Model')
+                        help='Save the trained model. Only applicable when training.')
+    parser.add_argument('--model-path', default='model_cnn.pt', help='path to save or load model file')
     parser.add_argument('--infer', action='store_true', default=False,
-                        help='Only test the saved model')
+                        help='Only test the saved model - do not train')
     args = parser.parse_args()
     return args
 
 
-def test_setup(batch_size=4, resize=128, num_workers=4, device='cpu'):
+def test_setup(batch_size=4, resize=128, num_workers=4, device='cpu', model_path=MODEL_FILENAME):
+    """ For running inference from another Python module """
     print(f"Setting up testing on device {device}")
     try:
         device = torch.device(device)
     except RuntimeError:
+        print(f"Error using device {device} - proceeding with cpu instead")
         device = torch.device('cpu')
 
-    oxford_pet_test = torchvision.datasets.OxfordIIITPet(
+    oxford_pet_test = OxfordIIITPet(
         root='data/',
         split="test",
         target_types="binary-category",
@@ -204,8 +226,8 @@ def test_setup(batch_size=4, resize=128, num_workers=4, device='cpu'):
                              batch_size=batch_size,
                              shuffle=True,
                              num_workers=num_workers)
-    model = Net().to(device)
-    model.load_state_dict(torch.load(MODEL_FILENAME, weights_only=True))
+    model = Net(resize=resize).to(device)
+    model.load_state_dict(torch.load(model_path, weights_only=True))
     print(f"{device} setup complete")
     return model, device, test_loader
 
@@ -219,25 +241,25 @@ def main():
     # train_images, train_labels = mnist_data.load_training()
     # test_images, test_labels = mnist_data.load_testing()
     print("Opening dataset...")
-    oxford_pet_train = torchvision.datasets.OxfordIIITPet(
+    oxford_pet_train = OxfordIIITPet(
         root='data/',
         split="trainval",
         target_types="binary-category",
         download=True,
         transform=torchvision.transforms.Compose([
-            Resize((128,128)),
+            Resize((args.resize, args.resize)),
             ToTensor(),
         ]),
     )
     # print(oxford_pet_train[-1])
 
-    oxford_pet_test = torchvision.datasets.OxfordIIITPet(
+    oxford_pet_test = OxfordIIITPet(
         root='data/',
         split="test",
         target_types="binary-category",
         download=True,
         transform=torchvision.transforms.Compose([
-            Resize((128, 128)),
+            Resize((args.resize, args.resize)),
             ToTensor(),
         ]),
     )
@@ -254,17 +276,17 @@ def main():
     train_loader = DataLoader(oxford_pet_train,
                               batch_size=4,
                               shuffle=True,
-                              num_workers=4)
+                              num_workers=args.num_workers)
     test_loader = DataLoader(oxford_pet_test,
                               batch_size=4,
                               shuffle=True,
-                              num_workers=4)
+                              num_workers=args.num_workers)
 
     print("Initializing neural net...")
-    model = Net().to(device)
+    model = Net(resize=args.resize).to(device)
     # print(f"Model: {Net()}")
     if args.infer:
-        model.load_state_dict(torch.load(MODEL_FILENAME, weights_only=True))
+        model.load_state_dict(torch.load(args.model_path, weights_only=True))
         print("Starting inference...")
         infer(model, device, test_loader)
     else:
@@ -277,7 +299,7 @@ def main():
             scheduler.step()
 
         if args.save_model:
-            torch.save(model.state_dict(), MODEL_FILENAME)
+            torch.save(model.state_dict(), args.model_path)
 
 
 if __name__ == '__main__':
