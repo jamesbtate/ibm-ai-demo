@@ -65,3 +65,8 @@ One way to do that would be to modify the function `run_nnpa_process(...)`. In t
 to `catdog_training.test_setup(...)` change the device from `'nnpa'` to `'cuda'`.
 Then you can do a comparison of CPU vs CUDA concurrently or use the
 `--cpu-only` or `--nnpa-only` flags to do just one engine or the other.
+
+## Jupyter Notebook for Fashion MNIST example
+```
+jupyter-notebook --allow-root
+```
