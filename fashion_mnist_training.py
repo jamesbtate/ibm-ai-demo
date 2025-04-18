@@ -54,7 +54,7 @@ model.compile(loss='sparse_categorical_crossentropy',
 model.fit(X_train,
           y_train,
           batch_size=64,
-          epochs=10,
+          epochs=1,
           validation_data=(X_test, y_test))
 
 # Evaluate the model on test set
@@ -63,3 +63,4 @@ score = model.evaluate(X_test, y_test, verbose=0)
 # Print test accuracy
 print('\n', 'Test accuracy:', score[1])
 model.save('model.keras')
+model.export('exported_model')
